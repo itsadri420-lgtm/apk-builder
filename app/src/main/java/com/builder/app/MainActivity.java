@@ -1,6 +1,7 @@
 package com.builder.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ClipboardManager;
 import android.content.ContentValues;
 import android.content.Context;
@@ -21,6 +22,7 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -204,6 +206,18 @@ public class MainActivity extends Activity {
         row.addView(apps, h2);
         col.addView(row, lp(10));
 
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        Button newRepo = btn("＋ Neues Repo", false);
+        Button gh = btn("GitHub öffnen", false);
+        LinearLayout.LayoutParams h3 = new LinearLayout.LayoutParams(0, -2, 1f);
+        h3.rightMargin = d(5);
+        LinearLayout.LayoutParams h4 = new LinearLayout.LayoutParams(0, -2, 1f);
+        h4.leftMargin = d(5);
+        row2.addView(newRepo, h3);
+        row2.addView(gh, h4);
+        col.addView(row2, lp(4));
+
         logView = text("", 12, 0xFF7CFFB2, false);
         logView.setTypeface(Typeface.MONOSPACE);
         LinearLayout lc = card();
@@ -236,6 +250,55 @@ public class MainActivity extends Activity {
             remember(repo);
             showApps();
         });
+        newRepo.setOnClickListener(v -> {
+            readInputs();
+            askNewRepo();
+        });
+        gh.setOnClickListener(v -> {
+            String r = repoIn.getText().toString().trim();
+            String url = r.contains("/") ? "https://github.com/" + r : "https://github.com/";
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        });
+    }
+
+    void askNewRepo() {
+        LinearLayout bx = new LinearLayout(this);
+        bx.setOrientation(LinearLayout.VERTICAL);
+        bx.setPadding(d(20), d(10), d(20), 0);
+        EditText name = new EditText(this);
+        name.setHint("Name, z. B. doodle-app");
+        name.setSingleLine(true);
+        CheckBox priv = new CheckBox(this);
+        priv.setText("Privat");
+        bx.addView(name);
+        bx.addView(priv);
+        new AlertDialog.Builder(this)
+                .setTitle("Neues Repo erstellen")
+                .setView(bx)
+                .setPositiveButton("Erstellen", (dlg, w) -> {
+                    String n = name.getText().toString().trim().replace(" ", "-");
+                    boolean p = priv.isChecked();
+                    if (n.isEmpty()) return;
+                    new Thread(() -> createRepo(n, p)).start();
+                })
+                .setNegativeButton("Abbrechen", null)
+                .show();
+    }
+
+    void createRepo(String n, boolean p) {
+        try {
+            log("Erstelle Repo " + n + "…");
+            JSONObject res = new JSONObject(api("POST", "/user/repos",
+                    new JSONObject().put("name", n).put("private", p).put("auto_init", true)
+                            .put("description", "Erstellt mit APK Builder").toString()));
+            String full = res.getString("full_name");
+            remember(full);
+            sp.edit().putString("repo", full).apply();
+            runOnUiThread(() -> repoIn.setText(full));
+            log("Repo erstellt: " + full + " (ist jetzt eingetragen)");
+        } catch (Exception e) {
+            log("Fehler: " + e.getMessage());
+        }
     }
 
     void buildList() {
