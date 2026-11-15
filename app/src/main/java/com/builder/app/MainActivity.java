@@ -54,9 +54,11 @@ public class MainActivity extends Activity {
     static final int TXT = 0xFFE8F0FF, DIM = 0xFF8A97B8, CARD = 0xCC121A38;
 
     EditText tokenIn, repoIn, branchIn, codeIn;
-    TextView logView, listStatus;
+    TextView logView, listStatus, scrollBtn;
+    Button tApk, tAab;
     SharedPreferences sp;
     String token, repo, branch, code;
+    String outType = "apk";
     FrameLayout root;
     ScrollView mainPage, listPage;
     LinearLayout listBox;
@@ -78,7 +80,36 @@ public class MainActivity extends Activity {
         root.addView(mainPage);
         root.addView(listPage);
         listPage.setVisibility(View.GONE);
+
+        scrollBtn = text("↓", 22, 0xFFFFFFFF, true);
+        scrollBtn.setGravity(Gravity.CENTER);
+        GradientDrawable oval = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{0xFF00B8D4, VIOLET});
+        oval.setShape(GradientDrawable.OVAL);
+        scrollBtn.setBackground(oval);
+        scrollBtn.setElevation(d(6));
+        FrameLayout.LayoutParams sl = new FrameLayout.LayoutParams(d(52), d(52),
+                Gravity.BOTTOM | Gravity.END);
+        sl.setMargins(0, 0, d(18), d(28));
+        root.addView(scrollBtn, sl);
+        scrollBtn.setOnClickListener(v -> {
+            View c = mainPage.getChildAt(0);
+            if (c == null) return;
+            if (atBottom()) mainPage.smoothScrollTo(0, 0);
+            else mainPage.smoothScrollTo(0, c.getHeight());
+        });
+        mainPage.setOnScrollChangeListener((v, x, y, ox, oy) -> updateArrow());
+
         setContentView(root);
+    }
+
+    boolean atBottom() {
+        View c = mainPage.getChildAt(0);
+        return c != null && mainPage.getScrollY() + mainPage.getHeight() >= c.getHeight() - d(40);
+    }
+
+    void updateArrow() {
+        scrollBtn.setText(atBottom() ? "↑" : "↓");
     }
 
     // ---------- UI-Helfer ----------
@@ -103,12 +134,7 @@ public class MainActivity extends Activity {
         return t;
     }
 
-    Button btn(String s, boolean primary) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        b.setStateListAnimator(null);
+    void stylize(Button b, boolean primary) {
         if (primary) {
             b.setTextColor(0xFFFFFFFF);
             GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
@@ -119,6 +145,15 @@ public class MainActivity extends Activity {
             b.setTextColor(CYAN);
             b.setBackground(box(0x2200E5FF, CYAN, 14));
         }
+    }
+
+    Button btn(String s, boolean primary) {
+        Button b = new Button(this);
+        b.setText(s);
+        b.setAllCaps(false);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setStateListAnimator(null);
+        stylize(b, primary);
         return b;
     }
 
@@ -158,6 +193,13 @@ public class MainActivity extends Activity {
         return e;
     }
 
+    void setType(String t) {
+        outType = t;
+        sp.edit().putString("type", t).apply();
+        stylize(tApk, t.equals("apk"));
+        stylize(tAab, t.equals("aab"));
+    }
+
     // ---------- Hauptseite ----------
     void buildMain() {
         mainPage = new ScrollView(this);
@@ -191,8 +233,23 @@ public class MainActivity extends Activity {
         cc.addView(paste, lp(8));
         col.addView(cc, lp(14));
 
-        Button build = btn("⚡  Hochladen & APK bauen", true);
-        col.addView(build, lp(16));
+        LinearLayout tr = new LinearLayout(this);
+        tr.setOrientation(LinearLayout.HORIZONTAL);
+        tApk = btn("APK (Handy)", true);
+        tAab = btn("AAB (Play Store)", false);
+        LinearLayout.LayoutParams t1 = new LinearLayout.LayoutParams(0, -2, 1f);
+        t1.rightMargin = d(5);
+        LinearLayout.LayoutParams t2 = new LinearLayout.LayoutParams(0, -2, 1f);
+        t2.leftMargin = d(5);
+        tr.addView(tApk, t1);
+        tr.addView(tAab, t2);
+        col.addView(tr, lp(14));
+        tApk.setOnClickListener(v -> setType("apk"));
+        tAab.setOnClickListener(v -> setType("aab"));
+        setType(sp.getString("type", "apk"));
+
+        Button build = btn("⚡  Hochladen & bauen", true);
+        col.addView(build, lp(8));
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -316,6 +373,7 @@ public class MainActivity extends Activity {
         screen = s;
         mainPage.setVisibility(s == 0 ? View.VISIBLE : View.GONE);
         listPage.setVisibility(s == 0 ? View.GONE : View.VISIBLE);
+        if (scrollBtn != null) scrollBtn.setVisibility(s == 0 ? View.VISIBLE : View.GONE);
         listPage.scrollTo(0, 0);
     }
 
@@ -483,7 +541,7 @@ public class MainActivity extends Activity {
                 c.addView(text("abgelaufen", 13, PINK, true));
             } else {
                 String fn = nm + "-build-" + (no > 0 ? no : aid) + ".apk";
-                Button b = btn("Herunterladen & installieren", true);
+                Button b = btn("Herunterladen (& installieren)", true);
                 b.setOnClickListener(v -> new Thread(() -> {
                     try {
                         downloadArtifact(r, aid, fn);
@@ -571,7 +629,9 @@ public class MainActivity extends Activity {
                 log("Keine Dateien gefunden. Format: ### FILE: pfad");
                 return;
             }
-            log(files.size() + " Dateien werden hochgeladen…");
+            files.put(".buildtype", outType + "\n");
+            log(files.size() + " Dateien werden hochgeladen (Ausgabe: "
+                    + outType.toUpperCase(Locale.US) + ")…");
             String parent = new JSONObject(api("GET", "/repos/" + repo + "/git/ref/heads/" + branch, null))
                     .getJSONObject("object").getString("sha");
             String baseTree = new JSONObject(api("GET", "/repos/" + repo + "/git/commits/" + parent, null))
@@ -643,7 +703,7 @@ public class MainActivity extends Activity {
     }
 
     void downloadArtifact(String rp, long aid, String fname) throws Exception {
-        log("Lade APK…");
+        log("Lade Datei…");
         HttpURLConnection c = (HttpURLConnection) new URL("https://api.github.com/repos/" + rp
                 + "/actions/artifacts/" + aid + "/zip").openConnection();
         c.setInstanceFollowRedirects(false);
@@ -662,21 +722,31 @@ public class MainActivity extends Activity {
         ZipInputStream z = new ZipInputStream(in);
         ZipEntry e;
         while ((e = z.getNextEntry()) != null) {
-            if (e.getName().endsWith(".apk")) {
-                final Uri u = saveApk(z, fname);
+            String en = e.getName();
+            boolean isApk = en.endsWith(".apk");
+            boolean isAab = en.endsWith(".aab");
+            if (isApk || isAab) {
+                String name = isAab ? fname.replaceAll("\\.apk$", ".aab") : fname;
+                final Uri u = saveFile(z, name, isAab);
                 remember(rp);
-                log("APK liegt im Download-Ordner.");
-                runOnUiThread(() -> install(u));
+                if (isAab) {
+                    log("AAB liegt im Download-Ordner: " + name
+                            + " (nicht auf dem Handy installierbar, nur für die Play Console)");
+                } else {
+                    log("APK liegt im Download-Ordner.");
+                    runOnUiThread(() -> install(u));
+                }
                 return;
             }
         }
-        log("Keine APK im Artefakt.");
+        log("Keine APK/AAB im Artefakt.");
     }
 
-    Uri saveApk(InputStream in, String name) throws Exception {
+    Uri saveFile(InputStream in, String name, boolean aab) throws Exception {
         ContentValues v = new ContentValues();
         v.put(MediaStore.Downloads.DISPLAY_NAME, name);
-        v.put(MediaStore.Downloads.MIME_TYPE, "application/vnd.android.package-archive");
+        v.put(MediaStore.Downloads.MIME_TYPE,
+                aab ? "application/octet-stream" : "application/vnd.android.package-archive");
         v.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
         Uri u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
         OutputStream o = getContentResolver().openOutputStream(u);
