@@ -3,6 +3,7 @@ package com.builder.app;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ContentValues;
 import android.content.Context;
@@ -55,6 +56,8 @@ import java.util.zip.ZipInputStream;
 public class MainActivity extends Activity {
     static final int CYAN = 0xFF00E5FF, VIOLET = 0xFF7C4DFF, PINK = 0xFFFF4DA6;
     static final int TXT = 0xFFE8F0FF, DIM = 0xFF8A97B8, CARD = 0xCC121A38;
+    static final String SELF_REPO = "itsadri420-lgtm/apk-builder";
+    static final String SELF_BRANCH = "main";
 
     EditText tokenIn, repoIn, branchIn, codeIn;
     TextView logView, listStatus, scrollBtn;
@@ -281,6 +284,66 @@ public class MainActivity extends Activity {
         stylize(tAab, t.equals("aab"));
     }
 
+    // ---------- Kontext-Text für einen neuen Chat ----------
+    boolean isTextPath(String p) {
+        String s = p.toLowerCase(Locale.US);
+        return s.endsWith(".java") || s.endsWith(".kt") || s.endsWith(".xml")
+                || s.endsWith(".gradle") || s.endsWith(".kts") || s.endsWith(".yml")
+                || s.endsWith(".yaml") || s.endsWith(".properties") || s.endsWith(".md")
+                || s.endsWith(".txt") || s.endsWith(".pro") || s.endsWith(".json")
+                || s.endsWith(".buildtype") || s.endsWith(".gitignore");
+    }
+
+    void copyContext() {
+        try {
+            log("Sammle Projektdateien aus " + SELF_REPO + "…");
+            JSONArray tree = new JSONObject(api("GET",
+                    "/repos/" + SELF_REPO + "/git/trees/" + SELF_BRANCH + "?recursive=1", null))
+                    .getJSONArray("tree");
+            StringBuilder sb = new StringBuilder();
+            sb.append("KONTEXT: Meine Android-App \"APK Builder\" (Paket com.builder.app)\n\n");
+            sb.append("So arbeiten wir:\n");
+            sb.append("- Die App hat ein Codefeld. Dort füge ich Code in diesem Format ein: ");
+            sb.append("pro Datei eine Zeile \"### FILE: pfad/zur/Datei\" und darunter der komplette Dateiinhalt.\n");
+            sb.append("- Mit \"Hochladen & bauen\" lädt die App die Dateien in mein GitHub-Repo ");
+            sb.append("(").append(SELF_REPO).append(", Branch ").append(SELF_BRANCH).append("). ");
+            sb.append("GitHub Actions (.github/workflows/build.yml) baut die APK, ");
+            sb.append("die App lädt sie herunter und installiert sie als Update.\n");
+            sb.append("- Dateien, die ich einfüge, ersetzen die vorhandenen komplett. ");
+            sb.append("Nicht erwähnte Dateien bleiben unverändert.\n\n");
+            sb.append("Deine Aufgabe:\n");
+            sb.append("- Gib mir Änderungen immer als Code in diesem Format, jede Datei komplett, ");
+            sb.append("in einem einzigen Codeblock, ohne Erklärungen im Block.\n");
+            sb.append("- Wenn ich die App wiederherstellen will, gib mir alle Dateien unten unverändert im selben Format.\n");
+            sb.append("- Ich schreibe auf Deutsch und nutze das Handy. Halte Antworten kurz.\n");
+            sb.append("- Sag mir nach dem Code kurz, welches Repo ich eintragen muss.\n\n");
+            sb.append("AKTUELLE DATEIEN:\n\n");
+            int count = 0;
+            for (int i = 0; i < tree.length(); i++) {
+                JSONObject o = tree.getJSONObject(i);
+                if (!"blob".equals(o.optString("type"))) continue;
+                String p = o.getString("path");
+                if (!isTextPath(p) || o.optLong("size") > 200000) continue;
+                String content = api("GET", "/repos/" + SELF_REPO + "/contents/" + p
+                        + "?ref=" + SELF_BRANCH, null, "application/vnd.github.raw+json");
+                sb.append("### FILE: ").append(p).append("\n").append(content);
+                if (!content.endsWith("\n")) sb.append("\n");
+                sb.append("\n");
+                count++;
+            }
+            final String all = sb.toString();
+            final int n = count;
+            runOnUiThread(() -> {
+                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("APK Builder Kontext", all));
+            });
+            log("Kontext kopiert: " + n + " Dateien, " + all.length()
+                    + " Zeichen. Jetzt im neuen Chat einfügen.");
+        } catch (Exception e) {
+            log("Fehler: " + e.getMessage());
+        }
+    }
+
     // ---------- Hauptseite ----------
     void buildMain() {
         mainPage = new ScrollView(this);
@@ -289,9 +352,21 @@ public class MainActivity extends Activity {
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(d(20), d(52), d(20), d(28));
 
-        TextView title = text("APK BUILDER", 30, CYAN, true);
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = text("APK BUILDER", 27, CYAN, true);
         title.setLetterSpacing(0.12f);
-        col.addView(title);
+        head.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView ctx = text("📋 Kontext", 13, CYAN, true);
+        ctx.setPadding(d(12), d(8), d(12), d(8));
+        ctx.setBackground(box(0x2200E5FF, CYAN, 12));
+        ctx.setOnClickListener(v -> {
+            readInputs();
+            new Thread(this::copyContext).start();
+        });
+        head.addView(ctx);
+        col.addView(head);
         col.addView(text("Code einfügen · bauen · installieren", 13, DIM, false));
 
         LinearLayout set = card();
