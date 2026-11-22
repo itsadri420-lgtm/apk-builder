@@ -2,6 +2,7 @@ package com.builder.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.ClipboardManager;
 import android.content.ContentValues;
 import android.content.Context;
@@ -20,7 +21,9 @@ import android.provider.MediaStore;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -55,6 +58,8 @@ public class MainActivity extends Activity {
 
     EditText tokenIn, repoIn, branchIn, codeIn;
     TextView logView, listStatus, scrollBtn;
+    ScrollView logScroll;
+    TextView fsLogView;
     Button tApk, tAab;
     SharedPreferences sp;
     String token, repo, branch, code;
@@ -180,10 +185,10 @@ public class MainActivity extends Activity {
         e.setPadding(d(14), d(12), d(14), d(12));
         e.setTextSize(15);
         if (multi) {
-            e.setMinLines(8);
             e.setGravity(Gravity.TOP);
             e.setTextSize(12);
             e.setTypeface(Typeface.MONOSPACE);
+            e.setVerticalScrollBarEnabled(true);
             e.setInputType(InputType.TYPE_CLASS_TEXT
                     | InputType.TYPE_TEXT_FLAG_MULTI_LINE
                     | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
@@ -191,6 +196,82 @@ public class MainActivity extends Activity {
             e.setSingleLine(true);
         }
         return e;
+    }
+
+    // Kopfzeile einer Karte: Titel links, Zoom-Symbol rechts
+    LinearLayout headRow(String title, String symbol, Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(text(title, 14, DIM, true), new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView z = text(symbol, 22, CYAN, true);
+        z.setPadding(d(14), d(2), d(2), d(2));
+        z.setOnClickListener(v -> action.run());
+        row.addView(z);
+        return row;
+    }
+
+    // Damit ein Feld innen scrollt, statt die ganze Seite zu bewegen
+    void nested(View v) {
+        v.setOnTouchListener((x, ev) -> {
+            int a = ev.getAction();
+            if (a == MotionEvent.ACTION_DOWN || a == MotionEvent.ACTION_MOVE) {
+                if (x.canScrollVertically(-1) || x.canScrollVertically(1)) {
+                    x.getParent().requestDisallowInterceptTouchEvent(true);
+                }
+            } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
+                x.getParent().requestDisallowInterceptTouchEvent(false);
+            }
+            return false;
+        });
+    }
+
+    // Scrollt automatisch ans Ende, sobald der Text länger wird
+    void autoScroll(TextView tv, ScrollView sv) {
+        tv.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, orr, ob) -> {
+            if (b - t != ob - ot) sv.scrollTo(0, b - t);
+        });
+    }
+
+    Dialog fullscreen(String title, View content, Runnable onClose) {
+        Dialog dlg = new Dialog(this, android.R.style.Theme_Black_NoTitleBar);
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setBackgroundColor(0xFF050816);
+        page.setPadding(d(16), d(16), d(16), d(16));
+        page.addView(headRow(title, "✕", dlg::dismiss));
+        LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(-1, 0, 1f);
+        cl.topMargin = d(8);
+        page.addView(content, cl);
+        dlg.setContentView(page);
+        dlg.setOnDismissListener(x -> onClose.run());
+        if (dlg.getWindow() != null) {
+            dlg.getWindow().setStatusBarColor(0xFF050816);
+            dlg.getWindow().setNavigationBarColor(0xFF050816);
+            dlg.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+        return dlg;
+    }
+
+    void openFullCode() {
+        EditText e = field("Code hier einfügen (### FILE: pfad)", true);
+        e.setText(codeIn.getText());
+        Dialog dlg = fullscreen("Code", e, () -> codeIn.setText(e.getText()));
+        dlg.show();
+    }
+
+    void openFullLog() {
+        ScrollView sv = new ScrollView(this);
+        sv.setBackground(box(CARD, 0x5500E5FF, 16));
+        TextView tv = text(logView.getText().toString(), 12, 0xFF7CFFB2, false);
+        tv.setTypeface(Typeface.MONOSPACE);
+        tv.setPadding(d(14), d(12), d(14), d(12));
+        tv.setTextIsSelectable(true);
+        sv.addView(tv);
+        autoScroll(tv, sv);
+        fsLogView = tv;
+        Dialog dlg = fullscreen("Protokoll", sv, () -> fsLogView = null);
+        dlg.show();
     }
 
     void setType(String t) {
@@ -227,8 +308,12 @@ public class MainActivity extends Activity {
         col.addView(set, lp(18));
 
         LinearLayout cc = card();
+        cc.addView(headRow("Code", "⤢", this::openFullCode));
         codeIn = field("Code hier einfügen (### FILE: pfad)", true);
-        cc.addView(codeIn);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, d(150));
+        cp.topMargin = d(6);
+        cc.addView(codeIn, cp);
+        nested(codeIn);
         Button paste = btn("Aus Zwischenablage einfügen", false);
         cc.addView(paste, lp(8));
         col.addView(cc, lp(14));
@@ -277,8 +362,16 @@ public class MainActivity extends Activity {
 
         logView = text("", 12, 0xFF7CFFB2, false);
         logView.setTypeface(Typeface.MONOSPACE);
+        logScroll = new ScrollView(this);
+        logScroll.setVerticalScrollBarEnabled(true);
+        logScroll.addView(logView);
+        autoScroll(logView, logScroll);
+        nested(logScroll);
         LinearLayout lc = card();
-        lc.addView(logView);
+        lc.addView(headRow("Protokoll", "⤢", this::openFullLog));
+        LinearLayout.LayoutParams lcp = new LinearLayout.LayoutParams(-1, d(180));
+        lcp.topMargin = d(6);
+        lc.addView(logScroll, lcp);
         col.addView(lc, lp(14));
         mainPage.addView(col);
 
@@ -570,6 +663,7 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> {
             logView.append(s + "\n");
             listStatus.setText(s);
+            if (fsLogView != null) fsLogView.append(s + "\n");
         });
     }
 
